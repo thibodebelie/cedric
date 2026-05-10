@@ -17,6 +17,13 @@ SLACKS = {"Step_1_Unload": 10, "Step_2_Transport": 7, "Step_3_Infeed": 10}
 RESOURCES = {"Step_1_Unload": 4, "Step_2_Transport": 3, "Step_3_Infeed": 3}
 INPUT_FILE = "Bootstrapped_Baggage_Scenarios_baseline_hours.csv"
 
+def format_time(minutes_offset, base_datetime):
+    """Converts minute offset to 'dd hh:mm:ss' string."""
+    ts = base_datetime + timedelta(minutes=float(minutes_offset))
+    # %m/%d/%Y %H:%M produces '04/09/2026 07:40'
+    # Using lstrip('0') or similar varies by OS, so we use a clean standard format:
+    return ts.strftime("%#m/%#d/%Y %H:%M") 
+
 def solve_scenario(scenario_id):
     # Load Scenario Data
     df = pd.read_csv(INPUT_FILE)
@@ -134,20 +141,8 @@ if __name__ == "__main__":
         df_res, base_dt, model = solve_scenario(scen_id)
        
         if df_res is not None:
-            # 1. Ensure time columns are in minutes
-            df_min = df_res.copy()
-            sec_to_min_map = {
-                "Start_Sec": "Start",
-                "Finish_Sec": "Finish",
-                "Arrival_Sec": "Arrival",
-                "Duration_Sec": "Duration",
-            }
-            for sec_col, min_col in sec_to_min_map.items():
-                if sec_col in df_min.columns and min_col not in df_min.columns:
-                    df_min[min_col] = df_min[sec_col] / 60.0
-
             # 2. Pivoting & KPIs
-            pivot_df = df_min.pivot(index=["Flight", "Arrival"], columns="Step", values=["Machine", "Start", "Finish"])
+            pivot_df = df_res.pivot(index=["Flight", "Arrival"], columns="Step", values=["Machine", "Start", "Finish"])
             pivot_df.columns = [f"{col[1]}_{col[0]}" for col in pivot_df.columns]
             pivot_df = pivot_df.reset_index()
            
@@ -158,12 +153,24 @@ if __name__ == "__main__":
             pivot_df["Total Idle Time"] = pivot_df["Idle time Unload"] + pivot_df["Idle time Transport"] + pivot_df["Idle time Infeed"]
 
             # Utilization Calculation
-            total_span_min = df_min["Finish"].max() - df_min["Arrival"].min()
+            total_span_min = df_res["Finish"].max() - df_res["Arrival"].min()
+
+            time_cols = ["Arrival", "Step_1_Unload_Start", "Step_1_Unload_Finish", 
+                         "Step_2_Transport_Start", "Step_2_Transport_Finish", 
+                         "Step_3_Infeed_Start", "Step_3_Infeed_Finish"]
+
+            for col in time_cols:
+                pivot_df[col] = pivot_df[col].apply(lambda x: format_time(x, base_dt))
+
+            # Solver Technicals
+            try: gap_val = f"{model.MIPGap * 100:.4f} %"
+            except: gap_val = "0.0000 %"
+
             util_records = []
             for s in STEPS:
                 for m in range(1, RESOURCES[s] + 1):
                     m_name = f"{STEP_LABELS[s]} {m}"
-                    active_min = df_min[df_min["Machine"] == m_name]["Duration"].sum()
+                    active_min = df_res[df_res["Machine"] == m_name]["Duration"].sum()
                     util_percent = (active_min / total_span_min) * 100 if total_span_min > 0 else 0
                     util_records.append({"Resource": m_name, "Utilization %": round(util_percent, 2)})
             util_df = pd.DataFrame(util_records)
