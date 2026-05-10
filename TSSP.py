@@ -125,7 +125,7 @@ def solve_stochastic_thesis(input_csv):
 # --- 3. RUN ---
 if __name__ == "__main__":
     # Ensure the CSV exists in your directory
-    input_file = 'Bootstrapped_Baggage_Scenarios_baseline.csv'
+    input_file = 'Bootstrapped_Baggage_Scenarios_baseline_hours.csv'
     df_results = solve_stochastic_thesis(input_file)
    
     if df_results is not None:
