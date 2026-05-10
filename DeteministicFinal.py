@@ -17,6 +17,12 @@ SLACKS = {"Step_1_Unload": 10, "Step_2_Transport": 7, "Step_3_Infeed": 10}
 RESOURCES = {"Step_1_Unload": 4, "Step_2_Transport": 3, "Step_3_Infeed": 3}
 INPUT_FILE = "Bootstrapped_Baggage_Scenarios_baseline_hours.csv"
 
+def format_time(minutes_offset, base_datetime):
+    """Converts minute offset to 'dd hh:mm:ss' string."""
+    ts = base_datetime + timedelta(minutes=float(minutes_offset))
+    # Using %d for day of the month. Note: if spanning many months, use a differnt format.
+    return ts.strftime("%d %H:%M:%S")
+
 def solve_scenario(scenario_id):
     # Load Scenario Data
     df = pd.read_csv(INPUT_FILE)
@@ -159,14 +165,15 @@ if __name__ == "__main__":
 
             # Utilization Calculation
             total_span_min = df_min["Finish"].max() - df_min["Arrival"].min()
-            util_records = []
-            for s in STEPS:
-                for m in range(1, RESOURCES[s] + 1):
-                    m_name = f"{STEP_LABELS[s]} {m}"
-                    active_min = df_min[df_min["Machine"] == m_name]["Duration"].sum()
-                    util_percent = (active_min / total_span_min) * 100 if total_span_min > 0 else 0
-                    util_records.append({"Resource": m_name, "Utilization %": round(util_percent, 2)})
-            util_df = pd.DataFrame(util_records)
+
+            time_cols = ["Arrival", "Step1_Unload_Start", "Step_1_Unload_Finish", "Step_2_Transport_Start", "Step_2_Transport_Finish", "Step_3_Infeed_Start", "Step_3_Infeed_Finish"]
+
+            for col in time_cols:
+                pivot_df[col] = pivot_df[col].apply(lambda x: format_time(x, base_dt))
+            
+            # solver technicals
+            try: gap_val = f"{model.MIPGap *100:.4f} %"
+            except: gap_val = "0.0000%"
 
             # 3. Summary Table
             kpi_summary = [
