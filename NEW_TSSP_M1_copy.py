@@ -9,7 +9,7 @@ STEP_LABELS = {"Step_1_Unload": "Unload Gate", "Step_2_Transport": "Transport Ca
 SLACKS = {"Step_1_Unload": 20, "Step_2_Transport": 20, "Step_3_Infeed": 20}
 RESOURCES = {"Step_1_Unload": 4, "Step_2_Transport": 3, "Step_3_Infeed": 3}
 B = 30
-INPUT_FILE = "Bootstrapped_Baggage_50_Scenarios.csv"
+INPUT_FILE = "Bootstrapped_Baggage_25_Scenarios.csv"
 
 
 def format_time(minutes_offset, base_datetime):
