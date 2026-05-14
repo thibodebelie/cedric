@@ -6,10 +6,10 @@ from datetime import timedelta
 # --- 1. Configuration ---
 STEPS = ["Step_1_Unload", "Step_2_Transport", "Step_3_Infeed"]
 STEP_LABELS = {"Step_1_Unload": "Unload Gate", "Step_2_Transport": "Transport Cart", "Step_3_Infeed": "Infeed Station"}
-SLACKS = {"Step_1_Unload": 10, "Step_2_Transport":7, "Step_3_Infeed": 10}
+SLACKS = {"Step_1_Unload": 15, "Step_2_Transport":10, "Step_3_Infeed": 15}
 RESOURCES = {"Step_1_Unload": 4, "Step_2_Transport": 3, "Step_3_Infeed": 3}
 B = 30
-INPUT_FILE = "Bootstrapped_Baggage_25_Scenarios.csv"
+INPUT_FILE = "Bootstrapped_Baggage_50_Scenarios.csv"
 
 
 def format_time(minutes_offset, base_datetime):
@@ -133,7 +133,7 @@ def solve_tssp(scenario_ids):
     model.setObjective(obj, GRB.MINIMIZE)
 
     model.params.MIPGap = 0.02
-    model.params.TimeLimit = 1800
+    model.params.TimeLimit = 3600
 
     model.optimize()
 
