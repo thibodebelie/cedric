@@ -9,7 +9,7 @@ SLACKS = {"Step_1_Unload": 10, "Step_2_Transport": 7, "Step_3_Infeed": 10}
 RESOURCES = {"Step_1_Unload": 4, "Step_2_Transport": 3, "Step_3_Infeed": 3}
 B = 30
 INPUT_FILE = "Bootstrapped_Baggage_1_Scenarios.csv"
-LAMBDA_STABILITY = 1
+LAMBDA_STABILITY = 0.01
 
 def format_time(minutes_offset, base_datetime):
     ts = base_datetime + timedelta(minutes=float(minutes_offset))
