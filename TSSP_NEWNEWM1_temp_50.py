@@ -9,6 +9,7 @@ SLACKS = {"Step_1_Unload": 10, "Step_2_Transport": 7, "Step_3_Infeed": 10}
 RESOURCES = {"Step_1_Unload": 4, "Step_2_Transport": 3, "Step_3_Infeed": 3}
 B = 30
 INPUT_FILE = "Bootstrapped_Baggage_50_Scenarios.csv"
+LAMBDA_STABILITY = 1
 
 def format_time(minutes_offset, base_datetime):
     ts = base_datetime + timedelta(minutes=float(minutes_offset))
@@ -44,13 +45,13 @@ def solve_tssp(scenario_ids):
     # Calculate earliest possible arrival for each flight across all scenarios
     # creates safe lower bound for time-indexed variables
     FLIGHT_MIN_ARRIVALS = {f: min(SCENARIOS[sid][f]["arrival"] for sid in scenario_ids) for f in FLIGHT_LIST}
-
+    
     A_max = max(f_data["arrival"] for s_data in SCENARIOS.values() for f_data in s_data.values())
     D_max_sum = sum(max(f_data[s] for s_data in SCENARIOS.values() for f_data in s_data.values()) for s in STEPS)
     L_sum = sum(SLACKS.values())
     T_MAX = A_max + D_max_sum + L_sum + B 
 
-    model = gp.Model("TSSP_Robust_Fixed")
+    model = gp.Model("TSSP_Model_1_Efficiency")
 
     # ----- FIRST STAGE -----
     # "here-and-now" decisions made before uncertainty
@@ -58,25 +59,17 @@ def solve_tssp(scenario_ids):
     # ST_plan[f,s]: continuous
     x = {}
     ST_plan = {}
-    AVG_DURATIONS_S3 = {}
-    AVG_ARRIVALS = {}
 
     for f in FLIGHT_LIST:
         # Use the global earliest arrival for this specific flight
         global_min = FLIGHT_MIN_ARRIVALS[f]
-        # Average duration of Step 3 across all scenarios
-        AVG_DURATIONS_S3[f] = sum(SCENARIOS[sid][f]["Step_3_Infeed"] for sid in scenario_ids) / len(scenario_ids)
-        # Average arrival time across all scenarios
-        AVG_ARRIVALS[f] = sum(SCENARIOS[sid][f]["arrival"] for sid in scenario_ids) / len(scenario_ids)
-        
         for s in STEPS:
             ST_plan[f, s] = model.addVar(lb=0, vtype=GRB.CONTINUOUS, name=f"ST_plan_{f}_{s}")
-            
             for m in range(1, RESOURCES[s] + 1):
                 for t in range(global_min, T_MAX):
                     x[f, s, m, t] = model.addVar(vtype=GRB.BINARY, name=f"x_{f}_{s}_{m}_{t}")
 
-            # Define ST_plan and assignment constraint
+            # Define ST_plan and assignment constraints
             model.addConstr(ST_plan[f, s] == gp.quicksum(t * x[f, s, m, t] for m in range(1, RESOURCES[s]+1) for t in range(global_min, T_MAX)))
             model.addConstr(gp.quicksum(x[f, s, m, t] for m in range(1, RESOURCES[s]+1) for t in range(global_min, T_MAX)) == 1)
 
@@ -84,19 +77,23 @@ def solve_tssp(scenario_ids):
     # "wait-and-see" decisions made after uncertainty
     # x_real[sid,f,s,m,t]: binary for realized assignment in scenario sid
     # ST_real[sid,f,s]: continuous for realized start time in scenario sid
-    # delta[sid,f,s]: continuous for adjustment to planned start time in scenario sid
+    # delta[sid,f,s]: continuous for adjustment to planned start time in scenario sid 
     x_real = {}      
     ST_real = {}    
-    delta = {}      
+    delta = {}  
+        
+    realized_handling_time = {}
     
     for sid in scenario_ids:
         for f in FLIGHT_LIST:
             global_min = FLIGHT_MIN_ARRIVALS[f]
+            data_omega = SCENARIOS[sid][f]
 
             for s in STEPS:
                 ST_real[sid, f, s] = model.addVar(lb=0, vtype=GRB.CONTINUOUS, name=f"ST_real_{sid}_{f}_{s}")
                 delta[sid, f, s] = model.addVar(lb=-GRB.INFINITY, vtype=GRB.CONTINUOUS, name=f"delta_{sid}_{f}_{s}")
                 
+                # Linkage Constraint
                 model.addConstr(ST_real[sid, f, s] == ST_plan[f, s] + delta[sid, f, s])
 
                 for m in range(1, RESOURCES[s] + 1):
@@ -112,61 +109,51 @@ def solve_tssp(scenario_ids):
                     model.addConstr(gp.quicksum(x_real[sid, f, s, m, t] for t in range(global_min, T_MAX)) == 
                                    gp.quicksum(x[f, s, m, t] for t in range(global_min, T_MAX)))
 
+            # Define handling time for this flight in this scenario (Stage 3 End - Arrival)
+            realized_handling_time[sid, f] = ST_real[sid, f, "Step_3_Infeed"] + data_omega["Step_3_Infeed"] - data_omega["arrival"]
+
         # Capacity constraints
         # Ensure no machine is overbooked in any scenario at any time
         for s in STEPS:
             for m in range(1, RESOURCES[s] + 1):
                 for t in range(T_MAX):
-                    busy_real = []
-                    for f in FLIGHT_LIST:
-                        global_min = FLIGHT_MIN_ARRIVALS[f]
-                        D_omega = SCENARIOS[sid][f][s]
-                        for ts in range(max(global_min, t - D_omega + 1), t + 1):
-                            if (sid, f, s, m, ts) in x_real:
-                                busy_real.append(x_real[sid, f, s, m, ts])
-                    if busy_real:
-                        model.addConstr(gp.quicksum(busy_real) <= 1, name=f"RealCap_{sid}_{s}_{m}_{t}")
+                    busy_real = [x_real[sid, f, s, m, ts] for f in FLIGHT_LIST for ts in range(max(FLIGHT_MIN_ARRIVALS[f], t - SCENARIOS[sid][f][s] + 1), t + 1) if (sid, f, s, m, ts) in x_real]
+                    if busy_real: model.addConstr(gp.quicksum(busy_real) <= 1)
 
         # Precedence and slack constraints
         # Ensure proper sequencing and slack allowances
         for f in FLIGHT_LIST:
-            data = SCENARIOS[sid][f]
-            model.addConstr(ST_real[sid, f, "Step_1_Unload"] >= data["arrival"])
-            model.addConstr(ST_real[sid, f, "Step_1_Unload"] <= data["arrival"] + SLACKS["Step_1_Unload"])
-            model.addConstr(ST_real[sid, f, "Step_2_Transport"] >= ST_real[sid, f, "Step_1_Unload"] + data["Step_1_Unload"])
-            model.addConstr(ST_real[sid, f, "Step_2_Transport"] <= ST_real[sid, f, "Step_1_Unload"] + data["Step_1_Unload"] + SLACKS["Step_2_Transport"])
-            model.addConstr(ST_real[sid, f, "Step_3_Infeed"] >= ST_real[sid, f, "Step_2_Transport"] + data["Step_2_Transport"])
-            model.addConstr(ST_real[sid, f, "Step_3_Infeed"] <= ST_real[sid, f, "Step_2_Transport"] + data["Step_2_Transport"] + SLACKS["Step_3_Infeed"])
+            d = SCENARIOS[sid][f]
+            model.addConstr(ST_real[sid, f, "Step_1_Unload"] >= d["arrival"])
+            model.addConstr(ST_real[sid, f, "Step_1_Unload"] <= d["arrival"] + SLACKS["Step_1_Unload"])
+            model.addConstr(ST_real[sid, f, "Step_2_Transport"] >= ST_real[sid, f, "Step_1_Unload"] + d["Step_1_Unload"])
+            model.addConstr(ST_real[sid, f, "Step_2_Transport"] <= ST_real[sid, f, "Step_1_Unload"] + d["Step_1_Unload"] + SLACKS["Step_2_Transport"])
+            model.addConstr(ST_real[sid, f, "Step_3_Infeed"] >= ST_real[sid, f, "Step_2_Transport"] + d["Step_2_Transport"])
+            model.addConstr(ST_real[sid, f, "Step_3_Infeed"] <= ST_real[sid, f, "Step_2_Transport"] + d["Step_2_Transport"] + SLACKS["Step_3_Infeed"])
 
     # Objective Function
-    # Part A: Average Planned Handling Time (The "First-Stage" cost)
-    # This is (1/|F|) * sum(ST_plan + D_avg - A_avg)
-    planned_handling_term = (1.0 / num_flights) * gp.quicksum(
-        (ST_plan[f, "Step_3_Infeed"] + AVG_DURATIONS_S3[f] - AVG_ARRIVALS[f]) 
-        for f in FLIGHT_LIST
+    # Part A: Expected realized handling time
+    # We sum H_f_omega across all flights and scenarios, then take the average.
+    expected_realized_handling = (1.0 / (num_scenarios * num_flights)) * gp.quicksum(
+        realized_handling_time[sid, f] for sid in scenario_ids for f in FLIGHT_LIST
     )
     
-    # Part B: Expected Recourse (The "Second-Stage" cost)
-    # We define phi as the absolute value of delta using helper variables
+    # Part B: Expected recourse stability
     abs_delta = {}
     for sid in scenario_ids:
         for f in FLIGHT_LIST:
             abs_delta[sid, f] = model.addVar(lb=0, name=f"abs_delta_{sid}_{f}")
-            # Constraints to force abs_delta = |delta|
             model.addConstr(abs_delta[sid, f] >= delta[sid, f, "Step_3_Infeed"])
             model.addConstr(abs_delta[sid, f] >= -delta[sid, f, "Step_3_Infeed"])
 
-    expected_recourse_term = (1.0 / num_scenarios) * gp.quicksum(
+    expected_stability_penalty = (1.0 / (num_scenarios * num_flights)) * gp.quicksum(
         abs_delta[sid, f] for sid in scenario_ids for f in FLIGHT_LIST
     )
     
-    # Final Objective: Minimize Plan + Recourse
-    model.setObjective(planned_handling_term + expected_recourse_term, GRB.MINIMIZE)
+    model.setObjective(expected_realized_handling + (LAMBDA_STABILITY * expected_stability_penalty), GRB.MINIMIZE)
 
-    # Solver parameters
     model.params.MIPGap = 0.02
     model.params.TimeLimit = 1800
-
     model.optimize()
 
     return model, x, ST_real, SCENARIOS, FLIGHT_LIST, base_time
@@ -334,7 +321,7 @@ if __name__ == "__main__":
                 df_real_formatted[col] = df_real_formatted[col].apply(lambda x: format_time(x, base_dt))
 
         # Save all results to excel file with multiple sheets
-        output_name = f"Thesis_TSSP_NEW_M1_Results_{len(scenario_list)}_Scenarios.xlsx"
+        output_name = f"Thesis_TSSP_NEWNEW_M1_Results_{len(scenario_list)}_Scenarios.xlsx"
         with pd.ExcelWriter(output_name, engine='openpyxl') as writer:
             pivot_plan.to_excel(writer, sheet_name="Master Resource Plan", index=False)
             summary_df.to_excel(writer, sheet_name="KPI Analysis", index=False, header=False)

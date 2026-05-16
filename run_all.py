@@ -24,8 +24,8 @@ def run_file(path: str) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run multiple TSSP_NEWM1_temp_*.py scripts sequentially")
-    parser.add_argument('-p', '--pattern', default='TSSP_NEWM1_temp_*.py', help='glob pattern to match scripts')
+    parser = argparse.ArgumentParser(description="Run multiple TSSP_NEWNEWM1_temp_*.py scripts sequentially")
+    parser.add_argument('-p', '--pattern', default='TSSP_NEWNEWM1_temp_*.py', help='glob pattern to match scripts')
     parser.add_argument('--dry-run', action='store_true', help='only list matching files')
     parser.add_argument('--continue-on-error', action='store_true', help='continue running remaining scripts when one fails')
     args = parser.parse_args()
