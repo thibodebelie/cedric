@@ -318,7 +318,7 @@ if __name__ == "__main__":
                 df_real_formatted[col] = df_real_formatted[col].apply(lambda x: format_time(x, base_dt))
 
         # Save all results to excel file with multiple sheets
-        output_name = f"Thesis_TSSP_NEW_M2_Results_{len(scenario_list)}_Scenarios.xlsx"
+        output_name = f"Thesis_TSSP_NEWNEW_M2_Results_{len(scenario_list)}_Scenarios.xlsx"
         with pd.ExcelWriter(output_name, engine='openpyxl') as writer:
             pivot_plan.to_excel(writer, sheet_name="Master Resource Plan", index=False)
             summary_df.to_excel(writer, sheet_name="KPI Analysis", index=False, header=False)

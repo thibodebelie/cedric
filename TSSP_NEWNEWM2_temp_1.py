@@ -10,7 +10,7 @@ SLACKS = {"Step_1_Unload": 10, "Step_2_Transport": 7, "Step_3_Infeed": 10}
 RESOURCES = {"Step_1_Unload": 4, "Step_2_Transport": 3, "Step_3_Infeed": 3}
 B = 30
 INPUT_FILE = "Bootstrapped_Baggage_1_Scenarios.csv"
-LAMBDA_STABILITY = 1  # Small weight to anchor the baseline ST_plan
+LAMBDA_STABILITY = 0.01
 
 def format_time(minutes_offset, base_datetime):
     ts = base_datetime + timedelta(minutes=float(minutes_offset))
@@ -318,7 +318,7 @@ if __name__ == "__main__":
                 df_real_formatted[col] = df_real_formatted[col].apply(lambda x: format_time(x, base_dt))
 
         # Save all results to excel file with multiple sheets
-        output_name = f"Thesis_TSSP_NEW_M2_Results_{len(scenario_list)}_Scenarios.xlsx"
+        output_name = f"Thesis_TSSP_NEWNEWM2_Results_{len(scenario_list)}_Scenarios.xlsx"
         with pd.ExcelWriter(output_name, engine='openpyxl') as writer:
             pivot_plan.to_excel(writer, sheet_name="Master Resource Plan", index=False)
             summary_df.to_excel(writer, sheet_name="KPI Analysis", index=False, header=False)
